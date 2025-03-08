@@ -147,7 +147,9 @@ def nn_forward_pass(params: Dict[str, torch.Tensor], X: torch.Tensor):
     # shape (N, C).                                                            #
     ############################################################################
     # Replace "pass" statement with your code
-    pass
+    hidden_temp = X @ W1 + b1 # N, H
+    hidden = torch.nn.functional.relu(hidden_temp) # N, H
+    scores = hidden @ W2 + b2 # N, C
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -212,7 +214,10 @@ def nn_forward_backward(
     # (Check Numeric Stability in http://cs231n.github.io/linear-classify/).   #
     ############################################################################
     # Replace "pass" statement with your code
-    pass
+    scores -= scores.max(dim=1, keepdim=True).values
+    scores_exp = torch.exp(scores)
+    probs = scores_exp / scores_exp.sum(dim=1, keepdim=True)
+    loss = -torch.sum(torch.log(probs[torch.arange(N), y])) / N + reg * torch.sum(W1 * W1) + reg * torch.sum(W2 * W2)
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -226,7 +231,22 @@ def nn_forward_backward(
     # tensor of same size                                                     #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    num_classes = scores.shape[1]
+    grad_L=1# scalar
+    device = probs.device  # Get the device of the probs tensor
+    grad_scores = probs - torch.eye(num_classes, device=device)[y]  # Ensure the one-hot tensor is on the same device
+    grad_W2_times_h = grad_scores
+    grad_h = grad_W2_times_h @ W2.T # N, H
+    grad_w1h_plus_b1 = grad_h * (h1 > 0) # N, H
+    grad_X = grad_w1h_plus_b1 @ W1.T # N, D
+    grad_W1 =  X.T @ grad_w1h_plus_b1 # D, H
+    grad_b1 = grad_w1h_plus_b1.sum(dim=0) # H
+    grad_W2 = h1.T @ grad_W2_times_h # H, C
+    grad_b2 = grad_scores.sum(dim=0) # C
+    grads['W1'] = grad_W1/N + 2*reg*W1
+    grads['b1'] = grad_b1/N
+    grads['W2'] = grad_W2/N + 2*reg*W2
+    grads['b2'] = grad_b2/N
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -307,7 +327,8 @@ def nn_train(
         # stored in the grads dictionary defined above.                         #
         #########################################################################
         # Replace "pass" statement with your code
-        pass
+        for param in params:
+            params[param] -= learning_rate * grads[param]
         #########################################################################
         #                             END OF YOUR CODE                          #
         #########################################################################
@@ -365,7 +386,8 @@ def nn_predict(
     # TODO: Implement this function; it should be VERY simple!                #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    scores, _ = nn_forward_pass(params, X)
+    y_pred = scores.argmax(dim=1)
     ###########################################################################
     #                              END OF YOUR CODE                           #
     ###########################################################################
@@ -388,10 +410,10 @@ def nn_get_search_params():
     - learning_rate_decays: learning rate decay candidates
                                 e.g. [1.0, 0.95, ...]
     """
-    learning_rates = []
-    hidden_sizes = []
-    regularization_strengths = []
-    learning_rate_decays = []
+    learning_rates = [0.99,0.66,0.33]
+    hidden_sizes = [256]
+    regularization_strengths = [1e-3,1e-5]
+    learning_rate_decays = [0.9,0.95,0.96]
     ###########################################################################
     # TODO: Add your own hyper parameter lists. This should be similar to the #
     # hyperparameters that you used for the SVM, but you may need to select   #
@@ -399,7 +421,7 @@ def nn_get_search_params():
     # classifier.                                                             #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    pass#already modified above
     ###########################################################################
     #                           END OF YOUR CODE                              #
     ###########################################################################
@@ -459,8 +481,29 @@ def find_best_net(
     # to write code to sweep through possible combinations of hyperparameters   #
     # automatically like we did on the previous exercises.                      #
     #############################################################################
-    # Replace "pass" statement with your code
-    pass
+    X_train, y_train, X_val, y_val = data_dict['X_train'], data_dict['y_train'], data_dict['X_val'], data_dict['y_val']
+    learning_rates, hidden_sizes, regularization_strengths, learning_rate_decays = get_param_set_fn()
+    print(learning_rates, hidden_sizes, regularization_strengths, learning_rate_decays)
+    for lr in learning_rates:
+        for hs in hidden_sizes:
+            for reg in regularization_strengths:
+                for lr_decay in learning_rate_decays:
+                    print('train with learning rate: {}, hidden size: {}, regularization strength: {}, learning rate decay: {}'.format(lr, hs, reg, lr_decay))
+                    net=TwoLayerNet(3 * 32 * 32, hs, 10, device=data_dict['X_train'].device, dtype=data_dict['X_train'].dtype)
+                    stat = net.train(X_train, y_train, X_val, y_val,
+                                    num_iters=3000, batch_size=1000,
+                                    learning_rate=lr, learning_rate_decay=lr_decay,
+                                    reg=reg, verbose=False)
+                    val_acc = stat['val_acc_history'][-1]
+                    print('validation accuracy: {}'.format(val_acc))
+                    
+                    if val_acc > best_val_acc:
+                        best_val_acc = val_acc
+                        best_stat = stat
+                        best_net = net
+    
+    print('best parameters: learning rate: {}, hidden size: {}, regularization strength: {}, learning rate decay: {}'.format(lr, hs, reg, lr_decay))
+
     #############################################################################
     #                               END OF YOUR CODE                            #
     #############################################################################
